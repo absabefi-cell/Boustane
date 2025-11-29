@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Chantier – Suivi avec export & sous-totaux</title>
+<style>
+    body { font-family: Arial, padding: 20px; }
+    label { font-weight: bold; }
+    select, input { width: 100%; padding: 6px; margin: 6px 0; }
+    button { padding: 10px; margin-top: 8px; width: 100%; cursor: pointer; border: none; color: white; }
+    #saveBtn { background: #3498db; }
+    #addMetierBtn { background: #2ecc71; }
+    #importBtn { background: #e67e22; }
+    #exportBtn { background: #9b59b6; }
+    #exportExcelBtn { background: #27ae60; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #888; padding: 6px; text-align: center; }
+    th { background: #eee; }
+</style>
+</head>
+<body>
+
+<h2>Suivi Chantier – Ajout métiers, sous-totaux & export</h2>
+
+<!-- Nouveau métier -->
+<label>Nouveau métier / article</label>
+<input type="text" id="newMetier" placeholder="ex: Peinture salon">
+<button id="addMetierBtn" onclick="ajouterMetier()">+ Ajouter ce métier</button>
+
+<br><br>
+
+<!-- Formulaire -->
+<label>Métier</label>
+<select id="metier"></select>
+
+<label>MO prévue</label>
+<input type="number" id="moPrev">
+
+<label>MO réglée</label>
+<input type="number" id="moRegle">
+
+<label>Fourniture réglée</label>
+<input type="number" id="fournRegle">
+
+<label>Reste (auto)</label>
+<input type="text" id="reste" readonly>
+
+<button id="saveBtn" onclick="sauvegarder()">Sauvegarder</button>
+<button id="importBtn" onclick="document.getElementById('jsonFile').click()">Importer JSON</button>
+<input type="file" id="jsonFile" accept=".json" style="display:none">
+<button id="exportBtn" onclick="exporterJSON()">Exporter JSON</button>
+<button id="exportExcelBtn" onclick="exporterExcel()">Exporter Excel</button>
+
+<div id="tableau"></div>
+
+<script>
+// -------------------------
+// MÉTIERS INITIAUX
+// -------------------------
+let METIERS_BASE = [
+    "Architecte & Études",
+    "Piscine Ali",
+    "Plombier Hassan",
+    "Électricité Said",
+    "Feronner Abdesslam",
+    "Carrelage Yassine",
+    "Menuiserie Aziz",
+    "Aluminium Miramane",
+    "Gabbasse Hassan",
+    "Cuisine",
+    "Gros œuvres"
+];
+
+// Liste des métiers (avec ceux ajoutés)
+let METIERS = JSON.parse(localStorage.getItem("METIERS_LIST")) || METIERS_BASE;
+
+// Remplir le select
+function remplirSelect() {
+    const sel = document.getElementById("metier");
+    sel.innerHTML = "";
+    METIERS.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        sel.appendChild(opt);
+    });
+}
+remplirSelect();
+
+// -------------------------
+// AJOUT D’UN NOUVEAU MÉTIER
+// -------------------------
+function ajouterMetier() {
+    const m = document.getElementById("newMetier").value.trim();
+    if (!m) { alert("Écris un nom de métier"); return; }
+
+    METIERS.push(m);                        // ajouté à la fin
+    localStorage.setItem("METIERS_LIST", JSON.stringify(METIERS));
+
+    document.getElementById("newMetier").value = "";
+    remplirSelect();
+    afficherTableau();
+    alert("Métier ajouté.");
+}
+
+// -------------------------
+// CHARGER FORMULAIRE
+// -------------------------
+document.getElementById("metier").addEventListener("change", () => {
+    const m = document.getElementById("metier").value;
+    const d = JSON.parse(localStorage.getItem(m) || "{}");
+
+    document.getElementById("moPrev").value = d.moPrev ?? "";
+    document.getElementById("moRegle").value = d.moRegle ?? "";
+    document.getElementById("fournRegle").value = d.fournRegle ?? "";
+    calculer();
+});
+
+// Calcul du reste
+function calculer() {
+    const prev  = parseFloat(document.getElementById("moPrev").value)  || 0;
+    const regle = parseFloat(document.getElementById("moRegle").value) || 0;
+    document.getElementById("reste").value = prev - regle;
+}
+document.querySelectorAll("input").forEach(inp => {
+    if (inp.id !== "reste") inp.addEventListener("input", calculer);
+});
+
+// -------------------------
+// SAUVEGARDE
+// -------------------------
+function sauvegarder() {
+    const m = document.getElementById("metier").value;
+    if (!m) { alert("Choisis un métier"); return; }
+
+    const d = {
+        moPrev:     Number(document.getElementById("moPrev").value)     || 0,
+        moRegle:    Number(document.getElementById("moRegle").value)    || 0,
+        fournRegle: Number(document.getElementById("fournRegle").value) || 0
+    };
+
+    localStorage.setItem(m, JSON.stringify(d));
+    afficherTableau();
+}
+
+// -------------------------
+// IMPORT JSON
+// -------------------------
+document.getElementById("jsonFile").addEventListener("change", function () {
+    const file = this.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function (e) {
+        const json = JSON.parse(e.target.result);
+
+        // reset
+        localStorage.clear();
+
+        // métiers depuis le fichier
+        METIERS = Object.keys(json);
+        localStorage.setItem("METIERS_LIST", JSON.stringify(METIERS));
+
+        // données par métier
+        METIERS.forEach(m => {
+            localStorage.setItem(m, JSON.stringify(json[m]));
+        });
+
+        remplirSelect();
+        afficherTableau();
+        alert("Import JSON réussi.");
+    };
+
+    reader.readAsText(file);
+});
+
+// -------------------------
+// EXPORT JSON
+// -------------------------
+function exporterJSON() {
+    let json = {};
+    METIERS.forEach(m => {
+        const d = JSON.parse(localStorage.getItem(m) || "{}");
+        json[m] = d;
+    });
+
+    const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chantier_export.json";
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// -------------------------
+// TABLEAU + SOUS-TOTAUX
+// -------------------------
+function afficherTableau() {
+    let totalPrev = 0, totalRegle = 0, totalFourn = 0, totalReste = 0;
+
+    let html = `
+    <table>
+        <tr>
+            <th>Métier</th>
+            <th>MO prévue</th>
+            <th>MO réglée</th>
+            <th>Fourniture réglée</th>
+            <th>Reste</th>
+        </tr>
+    `;
+
+    METIERS.forEach(m => {
+        const d = JSON.parse(localStorage.getItem(m) || "{}");
+
+        const moPrev  = Number(d.moPrev || 0);
+        const moRegle = Number(d.moRegle || 0);
+        const fourn   = Number(d.fournRegle || 0);
+        const reste   = moPrev - moRegle;
+
+        if (!moPrev && !moRegle && !fourn) return; // ignore ligne vide
+
+        totalPrev  += moPrev;
+        totalRegle += moRegle;
+        totalFourn += fourn;
+        totalReste += reste;
+
+        html += `
+        <tr>
+            <td>${m}</td>
+            <td>${moPrev}</td>
+            <td>${moRegle}</td>
+            <td>${fourn}</td>
+            <td>${reste}</td>
+        </tr>`;
+    });
+
+    const coutGlobal = totalRegle + totalFourn;
+
+    html += `
+        <tr style="background:#d1ffd1;font-weight:bold;">
+            <td>Total</td>
+            <td>${totalPrev}</td>
+            <td>${totalRegle}</td>
+            <td>${totalFourn}</td>
+            <td>${totalReste}</td>
+        </tr>
+        <tr style="background:#f0f8ff;font-weight:bold;">
+            <td colspan="5">Coût global (MO réglée + Fournitures) : ${coutGlobal} Dhs</td>
+        </tr>
+    </table>`;
+
+    document.getElementById("tableau").innerHTML = html;
+}
+
+// -------------------------
+// EXPORT EXCEL (CSV)
+// -------------------------
+function exporterExcel() {
+    const table = document.querySelector("#tableau table");
+    if (!table) { alert("Aucun tableau à exporter."); return; }
+
+    let lignes = [];
+    const rows = table.querySelectorAll("tr");
+
+    rows.forEach(row => {
+        const cols = row.querySelectorAll("th, td");
+        let ligne = [];
+        cols.forEach(col => {
+            let txt = col.textContent.replace(/;/g, ",").trim();
+            ligne.push(txt);
+        });
+        lignes.push(ligne.join(";"));
+    });
+
+    const csv = lignes.join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "chantier_suivi.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+afficherTableau();
+</script>
+
+</body>
+</html>
